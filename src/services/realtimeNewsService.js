@@ -14,12 +14,12 @@ class RealtimeNewsService {
    * @param {string} keyword - 구독할 검색어
    * @param {Function} callback - 새로운 뉴스 수신 콜백
    * @param {Object} options - 구독 옵션
-   * @returns {string} 구독 ID
+   * @returns {Promise<string>} 구독 ID
    */
-  subscribe(keyword, callback, options = {}) {
+  async subscribe(keyword, callback, options = {}) {
     if (!this.subscribers.has(keyword)) {
       this.subscribers.set(keyword, []);
-      this._startFetching(keyword, options);
+      await this._startFetching(keyword, options);
     }
 
     const subscriptionId = `${keyword}_${Date.now()}_${Math.random()}`;
@@ -29,14 +29,15 @@ class RealtimeNewsService {
       options
     });
 
-    // 기존 캐시된 뉴스 즉시 전송
-    if (this.newsCache.has(keyword)) {
-      callback({
-        type: 'cached',
-        keyword,
-        news: this.newsCache.get(keyword)
-      });
-    }
+    // 캐시된 뉴스 즉시 전송 제거
+    // (클라이언트에서 getNewsPage로 명시적으로 요청하게 함)
+    // if (this.newsCache.has(keyword)) {
+    //   callback({
+    //     type: 'cached',
+    //     keyword,
+    //     news: this.newsCache.get(keyword)
+    //   });
+    // }
 
     console.log(`[구독] ${keyword} - ID: ${subscriptionId}`);
     return subscriptionId;
@@ -53,7 +54,7 @@ class RealtimeNewsService {
         subscribers.splice(index, 1);
         console.log(`[구독 취소] ${subscriptionId}`);
 
-        // 마지막 구독자가 없으면 수집 중지
+        // 마지막 구독자가 없으면 수집 중지 (캐시는 유지)
         if (subscribers.length === 0) {
           this._stopFetching(keyword);
         }
@@ -67,7 +68,7 @@ class RealtimeNewsService {
    * 뉴스 수집 시작
    * @private
    */
-  _startFetching(keyword, options = {}) {
+  async _startFetching(keyword, options = {}) {
     const {
       interval = '*/5 * * * *', // 기본 5분마다
       display = 10,
@@ -76,8 +77,8 @@ class RealtimeNewsService {
 
     console.log(`[수집 시작] ${keyword} (간격: ${interval})`);
 
-    // 즉시 한 번 실행
-    this._fetchNews(keyword, { display, sort });
+    // 즉시 한 번 실행 (첫 뉴스 데이터가 도착할 때까지 대기)
+    await this._fetchNews(keyword, { display, sort });
 
     // 스케줄 설정
     const task = cron.schedule(interval, () => {
@@ -200,6 +201,44 @@ class RealtimeNewsService {
       result[keyword] = news;
     }
     return result;
+  }
+
+  /**
+   * 더 많은 뉴스 페이지 가져오기
+   * @param {string} keyword - 검색어
+   * @param {number} pageNumber - 페이지 번호 (1부터 시작)
+   * @param {Object} options - 추가 옵션
+   * @returns {Promise<Object>} 페이지 뉴스 데이터
+   */
+  async getNewsPage(keyword, pageNumber = 1, options = {}) {
+    try {
+      const { display = 10, sort = 'date' } = options;
+      const start = (pageNumber - 1) * display + 1;
+
+      if (start > 1000) {
+        throw new Error('최대 1000개까지의 뉴스만 조회 가능합니다.');
+      }
+
+      const result = await newsService.searchNews(keyword, {
+        display,
+        start,
+        sort
+      });
+
+      return {
+        success: true,
+        keyword,
+        page: pageNumber,
+        start: result.start,
+        display: result.display,
+        total: result.total,
+        items: result.items,
+        hasNextPage: result.start + result.display - 1 < result.total,
+        totalPages: Math.ceil(result.total / display)
+      };
+    } catch (error) {
+      throw error;
+    }
   }
 
   /**

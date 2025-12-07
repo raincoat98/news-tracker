@@ -27,7 +27,7 @@ io.on('connection', (socket) => {
   clientSubscriptions.set(socket.id, []);
 
   // 뉴스 구독
-  socket.on('subscribe', (data) => {
+  socket.on('subscribe', async (data) => {
     const { keyword, interval = '*/5 * * * *', display = 10 } = data;
 
     if (!keyword) {
@@ -37,25 +37,32 @@ io.on('connection', (socket) => {
 
     console.log(`[구독] ${socket.id} -> ${keyword}`);
 
-    // 실시간 서비스에 구독
-    const subscriptionId = realtimeNewsService.subscribe(
-      keyword,
-      (newsData) => {
-        socket.emit('news', newsData);
-      },
-      { interval, display }
-    );
+    try {
+      // 실시간 서비스에 구독 (첫 뉴스를 가져올 때까지 대기)
+      const subscriptionId = await realtimeNewsService.subscribe(
+        keyword,
+        (newsData) => {
+          socket.emit('news', newsData);
+        },
+        { interval, display }
+      );
 
-    // 클라이언트 구독 목록에 추가
-    const subscriptions = clientSubscriptions.get(socket.id) || [];
-    subscriptions.push({ keyword, subscriptionId });
-    clientSubscriptions.set(socket.id, subscriptions);
+      // 클라이언트 구독 목록에 추가
+      const subscriptions = clientSubscriptions.get(socket.id) || [];
+      subscriptions.push({ keyword, subscriptionId });
+      clientSubscriptions.set(socket.id, subscriptions);
 
-    socket.emit('subscribed', {
-      keyword,
-      subscriptionId,
-      message: `${keyword} 구독 성공`
-    });
+      socket.emit('subscribed', {
+        keyword,
+        subscriptionId,
+        message: `${keyword} 구독 성공`
+      });
+    } catch (error) {
+      console.error(`[구독 오류] ${keyword}:`, error.message);
+      socket.emit('error', {
+        message: `${keyword} 구독 중 오류 발생: ${error.message}`
+      });
+    }
   });
 
   // 뉴스 구독 취소
@@ -88,6 +95,27 @@ io.on('connection', (socket) => {
       news,
       count: news.length
     });
+  });
+
+  // 특정 페이지의 뉴스 요청
+  socket.on('get-news-page', async (data) => {
+    try {
+      const { keyword, pageNumber = 1, display = 10, sort = 'date' } = data;
+
+      if (!keyword) {
+        socket.emit('error', { message: '검색어(keyword)가 필요합니다.' });
+        return;
+      }
+
+      const result = await realtimeNewsService.getNewsPage(keyword, pageNumber, { display, sort });
+
+      socket.emit('news-page', result);
+    } catch (error) {
+      console.error(`[페이지 요청 오류] ${data?.keyword}:`, error.message);
+      socket.emit('error', {
+        message: `뉴스 페이지 로드 실패: ${error.message}`
+      });
+    }
   });
 
   // 서비스 상태 요청

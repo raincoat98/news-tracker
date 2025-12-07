@@ -355,6 +355,15 @@
           placeholder="검색어를 입력하세요 (예: JavaScript, 부동산, 정치)"
           @keyup.enter="subscribe"
         >
+        <input
+          type="number"
+          id="displayInput"
+          value="10"
+          min="1"
+          max="100"
+          placeholder="표시 개수"
+          style="width: 100px;"
+        >
         <button onclick="subscribe()">구독</button>
       </div>
 
@@ -383,6 +392,7 @@
     const connectionStatus = document.getElementById('connectionStatus');
     const connectionText = document.getElementById('connectionText');
     const keywordInput = document.getElementById('keywordInput');
+    const displayInput = document.getElementById('displayInput');
     const keywordsList = document.getElementById('keywordsList');
     const newListContainer = document.getElementById('newsList');
     const emptyState = document.getElementById('emptyState');
@@ -463,10 +473,12 @@
         return;
       }
 
+      const display = parseInt(displayInput.value, 10) || 10;
+
       socket.emit('subscribe', {
         keyword: keyword,
         interval: '*/5 * * * *', // 5분마다
-        display: 10
+        display: display
       });
 
       keywordInput.value = '';
